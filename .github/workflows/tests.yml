@@ -1,37 +1,27 @@
-name: tests
+iname: tests
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (including submodules)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build and start Postgres (Pagila)
-        run: docker compose up -d --build
+      - run: docker compose up -d --build
 
-      - name: Wait until Pagila data is loaded (actor table exists)
+      - name: Wait for Pagila to finish loading
         run: |
           for i in {1..60}; do
-            if docker compose exec -T pg psql -U postgres -d postgres -c "SELECT 1 FROM actor LIMIT 1;" >/dev/null 2>&1; then
-              echo "Pagila is loaded."
-              exit 0
-            fi
+            docker compose exec -T pg psql -U postgres -d postgres -c "SELECT 1 FROM actor LIMIT 1;" >/dev/null 2>&1 && exit 0
             sleep 2
           done
-          echo "Pagila did not finish loading in time."
           docker compose logs pg
           exit 1
 
-      - name: Run tests
-        run: docker compose exec -T pg bash -lc "./run_tests.sh"
-
-      - name: Logs on failure
-        if: failure()
-        run: docker compose logs pg
+      - run: docker compose exec -T pg ./run_tests.sh

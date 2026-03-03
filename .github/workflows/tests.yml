@@ -1,40 +1,35 @@
 name: tests
+
 on:
   push:
-    branches: ['*']
   pull_request:
-    branches: ['*']
+
 jobs:
-  docker:
+  test:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v2
-    - name: docker
-      run: |
-        # load the pagila data
-        git submodule init
-        git submodule update
-        git checkout master
+      - name: Checkout (including submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-        # run the database in docker container
-        docker-compose up -d --build
+      - name: Build and start Postgres (Pagila)
+        run: docker compose up -d --build
 
-        # verify that it is running successfully
-        # this is an idempotent command useful for debugging
-        docker ps -a
+      - name: Wait for Postgres to be ready
+        run: |
+          for i in {1..30}; do
+            docker compose exec -T pg pg_isready -U postgres && exit 0
+            sleep 1
+          done
+          echo "Postgres not ready in time"
+          docker compose logs pg
+          exit 1
 
-        # after the database starts successfully,
-        # it needs time to load the pagila data;
-        # this should happen in <1 second,
-        # but we sleep for a long time just to be sure that everything is loaded;
-        # this is a bit hacky,
-        # and a proper check would be to have an infinite loop that terminates once the data has been loaded
-        sleep 20
+      - name: Run autograder script inside the container
+        run: docker compose exec -T pg ./run_tests.sh
 
-        # run the tests
-        docker-compose exec -T pg ./fixme.sh
-
-        # FIXME:
-        # the docker-compose command above will generate an error when the github action is run
-        # this is due to the `fixme.sh` file not existing
-        # you will have to modify this file so that github actions runs the correct test cases
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs pg
